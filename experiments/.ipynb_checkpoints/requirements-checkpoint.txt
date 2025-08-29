@@ -1,0 +1,12 @@
+sounddevice
+websockets
+langchain
+langchain-community
+langchain_openai
+langgraph
+openai
+faiss-cpu
+tiktoken
+sentence-transformers
+miniaudio
+fastapi
