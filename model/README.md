@@ -39,7 +39,7 @@ load_dotenv(".env")
 Using txt files, create FAISS Vectorstore and save to local:
 
 ```python
-python make_vectorstore.py
+python rag/make_vectorstore.py
 ```
 
 ---
@@ -59,5 +59,5 @@ python -m uvicorn main:app --reload
 
 While the server is running, open a new terminal and run the command below to start the test client. You can use this client to provide voice input via your microphone and hear the AI's spoken response.
 ```bash
-python client_test_speech.py
+python temp_test_folder/client_test_speech.py
 ```
