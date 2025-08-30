@@ -2,6 +2,9 @@ import asyncio
 import os
 from dotenv import load_dotenv
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from pydantic import BaseModel, Field
+from typing import Literal, Union
+from enum import Enum
 
 # 우리가 만든 모듈들을 가져옵니다.
 from stt import STTModel
@@ -10,6 +13,52 @@ from tts import TTSModel
 
 # .env 파일에서 환경 변수 로드
 load_dotenv(dotenv_path=".env")
+
+# --- 0. pydantic 모델 정의 ---
+class ChatRole(str, Enum):
+    USER = "user"
+    ASSISTANT = "assistant"
+    SYSTEM = "system"
+
+class ChatMessage(BaseModel):
+    id: str
+    role: ChatRole
+    text: str
+
+class SttInterimResultMessage(BaseModel):
+    type: Literal['stt_interim_result']
+    transcript: str
+
+class VoiceInput(BaseModel):
+    type: Literal['voice']
+    data: str  # 또는 bytes, 필요에 따라
+    
+class VoiceChunk(BaseModel):
+    type: Literal['voicechunk']
+    chunk_data: str  # 또는 bytes
+    sequence: int = 0
+    is_final: bool = False
+
+class TTSAudioChunk(BaseModel):
+    type: Literal['tts_audio']
+    audio_data: bytes
+    sequence: int = 0
+    is_final: bool = False
+
+class ErrorMessage(BaseModel):
+    type: Literal['error']
+    message: str
+    error_code: str = "UNKNOWN_ERROR"
+
+# 메시지 타입 유니온
+MessageType = Union[
+    ChatMessage, 
+    SttInterimResultMessage, 
+    VoiceInput, 
+    VoiceChunk,
+    TTSAudioChunk,
+    ErrorMessage
+]
 
 # --- 1. 모든 AI 모델을 관리하는 서비스 클래스 ---
 class SpeechService:
@@ -57,4 +106,3 @@ async def websocket_s2s_endpoint(websocket: WebSocket):
         print(f"🚫 오류 발생: {e}")
     finally:
         print("클라이언트 세션 종료")
-
