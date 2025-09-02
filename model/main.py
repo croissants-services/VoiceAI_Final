@@ -7,9 +7,9 @@ from typing import Literal, Union
 from enum import Enum
 
 # 우리가 만든 모듈들을 가져옵니다.
-from stt import STTModel
-from llm import LLMModel
-from tts import TTSModel
+from .stt import STTModel
+from .llm import LLMModel
+from .tts import TTSModel
 
 # .env 파일에서 환경 변수 로드
 load_dotenv(dotenv_path=".env")
