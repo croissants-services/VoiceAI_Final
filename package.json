@@ -1,0 +1,7 @@
+{
+  "name": "voiceai-final",
+  "private": true,
+  "scripts": {
+    "dev": "pnpm --parallel --filter \"./**\" dev"
+  }
+}
