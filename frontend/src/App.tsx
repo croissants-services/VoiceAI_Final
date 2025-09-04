@@ -166,7 +166,6 @@ function App() {
       console.log('Audio track enabled:', stream.getAudioTracks()[0]?.enabled);
       console.log('Audio track muted:', stream.getAudioTracks()[0]?.muted);
       
-      // 尝试不同的编码选项，降级处理
       let options = {};
       if (MediaRecorder.isTypeSupported('audio/webm; codecs=opus')) {
         options = { mimeType: "audio/webm; codecs=opus" };
@@ -185,14 +184,14 @@ function App() {
         
         if (event.data.size > 0 && ws.current?.readyState === WebSocket.OPEN) {
           try {
-            // 方法1：直接发送Blob
-            // console.log('Sending Blob to WebSocket...');
-            // ws.current.send(event.data);
-            
-            // 方法2：如果上面不行，改为发送ArrayBuffer
-            const arrayBuffer = await event.data.arrayBuffer();
-            console.log('Converting to ArrayBuffer size:', arrayBuffer.byteLength);
-            ws.current.send(arrayBuffer);
+            // planA: send Blob
+            console.log('Sending Blob to WebSocket...');
+            ws.current.send(event.data);
+
+            // planB: if above fails, switch to sending ArrayBuffer
+            // const arrayBuffer = await event.data.arrayBuffer();
+            // console.log('Converting to ArrayBuffer size:', arrayBuffer.byteLength);
+            // ws.current.send(arrayBuffer);
             
             console.log('Audio data sent successfully');
           } catch (error) {

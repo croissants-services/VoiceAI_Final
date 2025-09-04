@@ -73,7 +73,22 @@ class SpeechService:
 app = FastAPI()
 speech_service = SpeechService()
 
-# --- 3. WebSocket 엔드포인트 정의 ---
+# --- 3. WebSocket 연결 상태 확인 헬퍼 함수 ---
+def is_websocket_connected(websocket: WebSocket) -> bool:
+    try:
+        # WebSocket 상태 확인 방법들
+        if hasattr(websocket, 'client_state'):
+            from fastapi.websockets import WebSocketState
+            return websocket.client_state == WebSocketState.CONNECTED
+        elif hasattr(websocket, '_state'):
+            return websocket._state == 1  # CONNECTED state
+        else:
+            # fallback: client 객체의 closed 속성 확인
+            return hasattr(websocket.client, 'closed') and not websocket.client.closed
+    except Exception:
+        return False
+
+# --- 4. WebSocket 엔드포인트 정의 ---
 @app.websocket("/ws/s2s")
 async def websocket_endpoint(websocket: WebSocket):
     client_host = websocket.client.host
@@ -92,9 +107,9 @@ async def websocket_endpoint(websocket: WebSocket):
                 # --- STT 단계 ---
                 print(f"[Model] Waiting for audio stream from {client_host}:{client_port}...")
                 full_transcript = await speech_service.stt_model.transcribe_stream(websocket)
-                
+                print(f'[Model] Received full transcript: {full_transcript}')
                 # 연결 상태 확인
-                if websocket.application_state != WebSocket.CONNECTED:
+                if not is_websocket_connected(websocket):
                     print("🔌 WebSocket 연결 상태 변경 감지")
                     break
                 
@@ -108,7 +123,7 @@ async def websocket_endpoint(websocket: WebSocket):
                     # 생성되는 음성 조각을 즉시 클라이언트로 전송합니다.
                     async for audio_chunk in audio_chunk_generator:
                         # 전송 전 연결 상태 재확인
-                        if websocket.application_state != WebSocket.CONNECTED:
+                        if not is_websocket_connected(websocket):
                             print("🔌 전송 중 연결 끊어짐 감지")
                             is_connected = False
                             break

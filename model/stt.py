@@ -32,15 +32,17 @@ class STTModel:
             self.dg_url,
             additional_headers={"Authorization": f"Token {self.api_key}"}
         ) as dg_websocket:
-            
-            print("Deepgram 서버에 연결되었습니다. 이제 마이크에 말씀하세요.")
-            
+                        
             async def forward_to_deepgram():
                 """클라이언트의 오디오를 Deepgram으로 전달"""
+                print(f"[STT] Forwarding audio to Deepgram process started.")
                 try:
                     while True:
                         audio_data = await client_websocket.receive_bytes()
-                        await dg_websocket.send(audio_data)
+                        print(f"[STT] Received {len(audio_data)} bytes from client")
+                        print(f"[STT] Data type: {type(audio_data)}")
+                        await dg_websocket.send(audio_data, text=True)
+                        
                 except websockets.ConnectionClosed:
                     print("클라이언트 연결이 끊겼습니다 (forwarder).")
                 except Exception as e:
@@ -78,7 +80,9 @@ class STTModel:
             keepalive_task = asyncio.create_task(send_keepalive())
             
             tasks = [forwarder_task, receiver_task, keepalive_task]
-            
+            for i, task in enumerate(tasks):
+                if task.done():
+                    print(f"任务 {i} 立即完成了，异常: {task.exception()}")
             # 작업 중 하나라도 먼저 끝나면, 나머지 작업을 정리하고 결과를 반환
             done, pending = await asyncio.wait(
                 tasks,
