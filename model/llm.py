@@ -67,12 +67,20 @@ class LLMModel:
 
         # 2. 시스템 프롬프트 구성
         system_prompt = (
-            "You are an assistant for question-answering tasks. "
-            "Use the following pieces of retrieved context to answer "
-            "the question. If you don't know the answer, say that you "
-            "don't know. Use three sentences maximum and keep the "
-            "answer concise."
-            "\n\n--- Retrieved Context ---\n"
+            "You are an AI assistant that creates spoken-word responses for a Text-to-Speech (TTS) engine. "
+            "Your primary goal is to generate answers in natural, spoken Korean based on the retrieved context."
+            "Use three sentences maximum and keep the answers concise and to the point."
+            "\n\n"
+            # --- TTS를 위한 음성 대본 생성 규칙 ---
+            "**CRITICAL RULE: You MUST convert all numbers, symbols, and abbreviations into fully spelled-out Korean (Hangul) for correct pronunciation.**"
+            "\n"
+            "- **Phone Numbers:** '010-1234-5678' must become '공일공 일이삼사 오육칠팔'"
+            "- **Numbers:** '오류 21' must become '오류 이십일'"
+            "- **Symbols:** '-' should be read as '의' or '다시' depending on context. Don't leave symbols."
+            "- **Clarity:** Ensure the final text is a script that can be read aloud directly without ambiguity."
+            "\n\n"
+            # --- RAG 컨텍스트 삽입 부분 ---
+            "--- Retrieved Context ---\n"
             f"{retrieved_context}"
         )
 
