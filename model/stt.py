@@ -38,29 +38,30 @@ class STTModel:
                 print(f"[STT] Forwarding audio to Deepgram process started.")
                 try:
                     while True:
-                        audio_data = await client_websocket.receive_bytes()
-                        print(f"[STT] Received {len(audio_data)} bytes from client")
-                        print(f"[STT] Data type: {type(audio_data)}")
-                        await dg_websocket.send(audio_data, text=True)
-                        
+                        message = await client_websocket.receive()
+                        if audio_data := message.get("bytes"):
+                            await dg_websocket.send(audio_data)
                 except websockets.ConnectionClosed:
-                    print("클라이언트 연결이 끊겼습니다 (forwarder).")
+                    print("[STT] 클라이언트 연결이 끊겼습니다.")
                 except Exception as e:
-                    print(f"오디오 전달 중 오류 (forwarder): {e}")
+                    print(f"[STT ERROR]: {e}")
 
             async def receive_from_deepgram():
                 """Deepgram으로부터 결과를 받아 최종 텍스트를 찾음"""
                 final_transcript = ""
+                print(f"[STT] Receiving results from Deepgram process started.")
                 try:
                     async for msg in dg_websocket:
+                        print(f"[STT] Raw message from Deepgram: {msg}")
                         data = json.loads(msg)
+                        print(f"[STT] Parsed data: {data}")
                         transcript = data.get("channel", {}).get("alternatives", [{}])[0].get("transcript", "")
                         if transcript:
                             final_transcript = transcript
                             print(f"Deepgram으로부터 최종 텍스트 수신: {final_transcript}")
                             break # 최종 결과가 나오면 루프 종료
                 except websockets.ConnectionClosed:
-                     print("Deepgram 연결이 끊겼습니다 (receiver).")
+                     print("[STT ERROR] Deepgram 연결이 끊겼습니다 (receiver).")
                 except Exception as e:
                     print(f"결과 수신 중 오류 (receiver): {e}")
                 return final_transcript
@@ -80,9 +81,7 @@ class STTModel:
             keepalive_task = asyncio.create_task(send_keepalive())
             
             tasks = [forwarder_task, receiver_task, keepalive_task]
-            for i, task in enumerate(tasks):
-                if task.done():
-                    print(f"任务 {i} 立即完成了，异常: {task.exception()}")
+
             # 작업 중 하나라도 먼저 끝나면, 나머지 작업을 정리하고 결과를 반환
             done, pending = await asyncio.wait(
                 tasks,
