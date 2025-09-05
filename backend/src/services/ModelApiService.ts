@@ -38,6 +38,7 @@ export class ModelApiService {
 
   // 송신
   sendBinary(buf: Buffer) {
+    console.log("[BFF] Sending binary to model:", buf.length, "bytes");
     this.ws?.send(buf, { binary: true });
   }
   sendJson(obj: unknown) {

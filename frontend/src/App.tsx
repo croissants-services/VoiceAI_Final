@@ -31,6 +31,7 @@ function App() {
   const [recordingStatus, setRecordingStatus] = useState(RecordingStatus.Idle);
   const [userTranscript, setUserTranscript] = useState("");
   const [chatHistory, setChatHistory] = useState<ChatMessage[]>([]);
+  const [isWebSocketReady, setIsWebSocketReady] = useState(false);
 
   // --- Refs ---
   const ws = useRef<WebSocket | null>(null);
@@ -41,28 +42,57 @@ function App() {
 
   // --- WebSocket Connection ---
   useEffect(() => {
-    connectWebSocket();
+    console.log("[Frontend] Setting up WebSocket connection...");
+    setConnectionStatus(ConnectionStatus.Connecting);
+
+    const socket = new WebSocket(WS_URL);
+    socket.binaryType = 'arraybuffer'; // 设置二进制数据类型
+    ws.current = socket;
+
+    socket.onopen = () => {
+      console.log("[Frontend] WebSocket connection established successfully.");
+      setConnectionStatus(ConnectionStatus.Connected);
+      setIsWebSocketReady(true);
+      
+      // 发送测试数据确认连接
+      const testBlob = new Blob(['test'], { type: 'audio/webm' });
+      socket.send(testBlob);
+      console.log("Test blob sent");
+    };
+
+    socket.onmessage = handleWebSocketMessage;
+
+    socket.onclose = (event) => {
+      console.error(`[Frontend] WebSocket connection closed. Code: ${event.code}, Reason: ${event.reason}`);
+      setConnectionStatus(ConnectionStatus.Disconnected);
+      setIsWebSocketReady(false);
+    };
+
+    socket.onerror = (error) => {
+      console.error("[Frontend] WebSocket connection error:", error);
+      setConnectionStatus(ConnectionStatus.Error);
+      setIsWebSocketReady(false);
+    };
+
+    // Cleanup function
     return () => {
-      ws.current?.close();
+      console.log("[Frontend] Cleaning up WebSocket connection.");
+      socket.close();
       mediaRecorder.current?.stop();
     };
   }, []);
 
-  const connectWebSocket = () => {
-    setConnectionStatus(ConnectionStatus.Connecting);
-    ws.current = new WebSocket(WS_URL);
-
-    ws.current.onopen = () => setConnectionStatus(ConnectionStatus.Connected);
-    ws.current.onclose = () => setConnectionStatus(ConnectionStatus.Disconnected);
-    ws.current.onerror = () => setConnectionStatus(ConnectionStatus.Error);
-    ws.current.onmessage = handleWebSocketMessage;
-  };
-
   // --- Audio Playback ---
-  const initializeAudio = () => {
+  const initializeAudio = async () => {
     if (!audioContext.current) {
       audioContext.current = new AudioContext();
     }
+    
+    // 确保AudioContext处于运行状态
+    if (audioContext.current.state === 'suspended') {
+      await audioContext.current.resume();
+    }
+    console.log('AudioContext state:', audioContext.current.state);
   };
 
   const playNextAudioChunk = async () => {
@@ -118,29 +148,86 @@ function App() {
   // --- Recording Logic ---
   const startRecording = async () => {
     if (recordingStatus === RecordingStatus.Recording) return;
-    initializeAudio();
+    
+    if (!isWebSocketReady) {
+      console.log('WebSocket not ready yet');
+      alert('WebSocket connection not ready. Please wait.');
+      return;
+    }
 
+    await initializeAudio();
+    console.log("audio initialized");
+    
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      mediaRecorder.current = new MediaRecorder(stream);
+      
+      console.log('Stream active:', stream.active);
+      console.log('Audio tracks:', stream.getAudioTracks());
+      console.log('Audio track enabled:', stream.getAudioTracks()[0]?.enabled);
+      console.log('Audio track muted:', stream.getAudioTracks()[0]?.muted);
+      
+      let options = {};
+      if (MediaRecorder.isTypeSupported('audio/webm; codecs=opus')) {
+        options = { mimeType: "audio/webm; codecs=opus" };
+      } else if (MediaRecorder.isTypeSupported('audio/webm')) {
+        options = { mimeType: "audio/webm" };
+      } else {
+        console.warn('Using default MediaRecorder options');
+      }
+      
+      mediaRecorder.current = new MediaRecorder(stream, options);
+      console.log('MediaRecorder created with mimeType:', mediaRecorder.current.mimeType);
 
-      mediaRecorder.current.ondataavailable = (event) => {
+      mediaRecorder.current.ondataavailable = async (event) => {
+        console.log('MediaRecorder data available:', event.data.size, 'type:', event.data.type);
+        console.log('WebSocket state:', ws.current?.readyState);
+        
         if (event.data.size > 0 && ws.current?.readyState === WebSocket.OPEN) {
-          ws.current.send(event.data);
+          try {
+            // planA: send Blob
+            console.log('Sending Blob to WebSocket...');
+            ws.current.send(event.data);
+
+            // planB: if above fails, switch to sending ArrayBuffer
+            // const arrayBuffer = await event.data.arrayBuffer();
+            // console.log('Converting to ArrayBuffer size:', arrayBuffer.byteLength);
+            // ws.current.send(arrayBuffer);
+            
+            console.log('Audio data sent successfully');
+          } catch (error) {
+            console.error('Error sending audio data:', error);
+          }
+        } else {
+          if (event.data.size === 0) {
+            console.warn('Empty audio chunk received');
+          }
+          if (ws.current?.readyState !== WebSocket.OPEN) {
+            console.warn('WebSocket not ready, state:', ws.current?.readyState);
+          }
         }
       };
 
+      mediaRecorder.current.onstart = () => {
+        console.log('MediaRecorder started');
+      };
+
       mediaRecorder.current.onstop = () => {
+        console.log('MediaRecorder stopped');
         // Send a final empty chunk to signal end of stream
         if (ws.current?.readyState === WebSocket.OPEN) {
-          // This signaling might need to be more explicit depending on backend
-          // ws.current.send(JSON.stringify({ type: "end_of_stream" }));
+          ws.current.send(JSON.stringify({ type: "end_of_stream" }));
         }
         setRecordingStatus(RecordingStatus.Idle);
       };
 
+      mediaRecorder.current.onerror = (event) => {
+        console.error('MediaRecorder error:', event);
+      };
+
       mediaRecorder.current.start(MEDIA_RECORDER_TIMESLICE);
       setRecordingStatus(RecordingStatus.Recording);
+      console.log('Recording started with timeslice:', MEDIA_RECORDER_TIMESLICE);
+      
     } catch (error) {
       console.error("Failed to get media devices:", error);
       alert("Could not access microphone. Please check permissions.");
@@ -185,7 +272,7 @@ function App() {
         <button
           className={`record-button ${recordingStatus.toLowerCase()}`}
           onClick={toggleRecording}
-          disabled={connectionStatus !== ConnectionStatus.Connected}
+          disabled={connectionStatus !== ConnectionStatus.Connected || !isWebSocketReady}
         >
           {recordingStatus === RecordingStatus.Recording ? "Stop" : "Record"}
         </button>
