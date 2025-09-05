@@ -143,12 +143,18 @@ function App() {
     }
     isPlaying.current = true;
     const arrayBuffer = audioQueue.current.shift()!;
-    const audioBuffer = await audioContext.current!.decodeAudioData(arrayBuffer);
-    const source = audioContext.current!.createBufferSource();
-    source.buffer = audioBuffer;
-    source.connect(audioContext.current!.destination);
-    source.start();
-    source.onended = playNextAudioChunk;
+    try {
+      const audioBuffer = await audioContext.current!.decodeAudioData(arrayBuffer);
+      const source = audioContext.current!.createBufferSource();
+      source.buffer = audioBuffer;
+      source.connect(audioContext.current!.destination);
+      source.start();
+      source.onended = playNextAudioChunk;
+    } catch (e) {
+      console.warn('[Frontend] decodeAudioData failed; dropping chunk. Consider PCM fallback if server sends raw frames.', e);
+      // Try next chunk to avoid stalling
+      playNextAudioChunk();
+    }
   };
 
   const addToAudioQueue = (arrayBuffer: ArrayBuffer) => {
@@ -160,30 +166,63 @@ function App() {
 
   // --- WebSocket Message Handling ---
   const handleWebSocketMessage = async (event: MessageEvent) => {
-    if (event.data instanceof Blob) {
-      const arrayBuffer = await event.data.arrayBuffer();
+    // 1) Binary audio path
+    if (event.data instanceof ArrayBuffer) {
       await initializeAudio();
-      addToAudioQueue(arrayBuffer);
-      return;
+      const arrayBuffer = event.data as ArrayBuffer;
+
+      // Try to decode as a compressed/encoded container (mp3/ogg/wav)
+      try {
+        // if this succeeds, just queue it
+        addToAudioQueue(arrayBuffer);
+        return;
+      } catch (_) {
+        // Some browsers throw synchronously; most will reject the promise.
+      }
+
+      // If decodeAudioData fails (likely raw PCM16LE 16k mono), convert and play manually
+      try {
+        const ab = new Int16Array(arrayBuffer);
+        const len = ab.length;
+        const float = new Float32Array(len);
+        // Int16 -> Float32 [-1, 1]
+        for (let i = 0; i < len; i++) {
+          const s = ab[i] / 0x8000; // 32768
+          float[i] = Math.max(-1, Math.min(1, s));
+        }
+
+        const ctx = audioContext.current!;
+        // Create an AudioBuffer with the correct source sample rate (16 kHz)
+        const audioBuf = ctx.createBuffer(1, len, TARGET_SR);
+        audioBuf.copyToChannel(float, 0, 0);
+
+        const src = ctx.createBufferSource();
+        src.buffer = audioBuf;
+        src.connect(ctx.destination);
+        src.start();
+        return;
+      } catch (e) {
+        console.error('[Frontend] Failed to play raw PCM frame:', e);
+        return;
+      }
     }
 
+    // 2) Text/JSON path
     try {
       const message = JSON.parse(event.data);
       switch (message.type) {
-        case "stt_interim_result":
+        case 'stt_interim_result':
           setUserTranscript(message.transcript);
           break;
-        case "chat_message":
+        case 'chat_message':
           setChatHistory((prev) => [...prev, message]);
-          if (message.role === "user") {
-            setUserTranscript("");
-          }
+          if (message.role === 'user') setUserTranscript('');
           break;
         default:
           // ignore unknown message types
           break;
       }
-    } catch (error) {
+    } catch (_) {
       // Non-JSON text frames are ignored
     }
   };
@@ -249,7 +288,7 @@ function App() {
       sourceNode.current = src;
       procNode.current = proc;
       muteNode.current = mute;
-      audioContext.current = ac;
+      // audioContext.current = ac;  // <-- REMOVED THIS LINE
 
       stopHandles.current = () => {
         try { proc.disconnect(); } catch {}
@@ -325,9 +364,13 @@ function App() {
         >
           {recordingStatus === RecordingStatus.Recording ? "Stop" : "Record"}
         </button>
+        <button onClick={initializeAudio} style={{ marginLeft: 8 }}>
+          Enable Audio
+        </button>
       </footer>
     </div>
   );
 }
 
 export default App;
+
