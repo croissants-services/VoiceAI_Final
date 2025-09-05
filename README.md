@@ -17,7 +17,7 @@ Before you begin, ensure you have the following installed on your system:
 
 1.  **Clone the repository:**
     ```bash
-    git clone https://github.com/jiucai233/VoiceAI_Final.git
+    https://github.com/croissants-services/VoiceAI_Final.git
     cd VoiceAI_Final
     ```
 
