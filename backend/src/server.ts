@@ -2,6 +2,8 @@
 import http from "http";
 import { attachGateway } from "./websocket/gateway";
 
+const WS_PATH = "/ws";
+
 // 환경값 읽기 (기본값 포함)
 const PORT = Number.parseInt(process.env.PORT ?? "3001", 10);
 const MODEL_WS_URL = process.env.MODEL_WS_URL ?? "ws://127.0.0.1:8000/ws/s2s";
@@ -21,7 +23,8 @@ const server = http.createServer((req, res) => {
   res.setHeader("X-Powered-By", "voiceai-bff");
 
   switch (req.url) {
-    case "/health": {
+    case "/health":
+    case "/healthz": {
       // liveness: 프로세스가 살아있는지만 확인
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ ok: true }));
@@ -58,7 +61,7 @@ server.headersTimeout = 76_000;
 // 기동
 server.listen(PORT, () => {
   console.log(`[BFF] listening on http://localhost:${PORT}`);
-  console.log(`[BFF] proxy → ${MODEL_WS_URL}`);
+  console.log(`[BFF] ws path: ${WS_PATH}  |  proxy → ${MODEL_WS_URL}`);
 });
 
 // 그레이스풀 셧다운
