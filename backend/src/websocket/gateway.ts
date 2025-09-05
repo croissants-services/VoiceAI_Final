@@ -24,14 +24,21 @@ export function attachGateway(server: any, upstreamUrl: string) {
 
     // 클라이언트 → 업스트림
     client.on("message", (data, isBinary) => {
+      console.log("[BFF] Received from client:", { 
+        size: data instanceof Buffer ? data.length : (data as ArrayBuffer).byteLength,
+        isBinary,
+        type: typeof data 
+      });
+      
       if (isBinary) {
-        upstream.sendBinary(data as Buffer); // 예: PCM16 chunk
+        console.log("[BFF] Forwarding binary to upstream...");
+        upstream.sendBinary(data as Buffer);
       } else {
+        console.log("[BFF] Received text data:", String(data).slice(0, 100));
         try { upstream.sendJson(JSON.parse(String(data))); }
-        catch { /* 유효하지 않은 JSON은 무시 */ }
+        catch { console.log("[BFF] Invalid JSON ignored"); }
       }
     });
-
     // 어느 한쪽이 닫히면 반대쪽도 정리
     client.on("close", () => upstream.close());
   });
