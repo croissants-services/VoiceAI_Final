@@ -1,52 +1,46 @@
-// FastAPI `/ws/s2s`와의 WebSocket 클라이언트 래퍼
-
+// src/services/ModelApiService.ts
 import WebSocket from "ws";
 
 export class ModelApiService {
+  private url: string;
   private ws?: WebSocket;
-  private closed = false;
 
-  constructor(private upstreamUrl: string) {}
+  public onBinary?: (buf: Buffer) => void;
+  public onJson?: (obj: any) => void;
+  public onClose?: () => void;
+  public onError?: (err: any) => void;
 
-  connect(): Promise<void> {
-    return new Promise((resolve, reject) => {
-      const ws = new WebSocket(this.upstreamUrl);
-      this.ws = ws;
+  constructor(url: string) { this.url = url; }
 
-      ws.once("open", () => resolve());
-      ws.once("error", (err) => reject(err));
-
-      ws.on("close", () => {
-        if (!this.closed) this.onClose?.();
-      });
-
-      // 수신: 바이너리/JSON 분기
-      ws.on("message", (data, isBinary) => {
-        if (isBinary) this.onBinary?.(data as Buffer);
-        else {
-          try { this.onJson?.(JSON.parse(String(data))); }
-          catch { /* 유효하지 않은 JSON은 무시 */ }
-        }
-      });
+  async connect(): Promise<void> {
+    this.ws = new WebSocket(this.url, { perMessageDeflate: false });
+    console.log("[BFF] upstream connecting →", this.url);
+    this.ws.on("open", () => console.log("[BFF] upstream WS open:", this.url));
+    this.ws.on("close", (code, reason) => console.log("[BFF] upstream WS close", code, reason?.toString?.()));
+    this.ws.on("error", (e) => console.error("[BFF] upstream WS error", e));
+    await new Promise<void>((resolve, reject) => {
+      this.ws!.once("open", () => resolve());
+      this.ws!.once("error", (e) => reject(e));
     });
+
+    this.ws.on("message", (data, isBinary) => {
+      console.log("[BFF] upstream→ message", isBinary ? `binary ${(data as Buffer).length}B` : "json");
+      if (isBinary) { this.onBinary?.(data as Buffer); return; }
+      try { this.onJson?.(JSON.parse(String(data))); } catch {}
+    });
+    this.ws.on("close", () => this.onClose?.());
+    this.ws.on("error", (e) => this.onError?.(e));
   }
 
-  // 콜백 바인딩
-  onBinary?: (buf: Buffer) => void;
-  onJson?: (obj: unknown) => void;
-  onClose?: () => void;
-
-  // 송신
   sendBinary(buf: Buffer) {
-    console.log("[BFF] Sending binary to model:", buf.length, "bytes");
-    this.ws?.send(buf, { binary: true });
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+    console.log("[BFF] → upstream sendBinary bytes=", buf.length);
+    this.ws.send(buf, { binary: true });
   }
-  sendJson(obj: unknown) {
-    this.ws?.send(JSON.stringify(obj));
+  sendJson(obj: any) {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+    try { console.log("[BFF] → upstream sendJson keys=", Object.keys(obj)); } catch {}
+    this.ws.send(JSON.stringify(obj));
   }
-
-  close() {
-    this.closed = true;
-    this.ws?.close();
-  }
+  close() { try { this.ws?.close(); } catch {} }
 }
