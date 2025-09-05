@@ -11,13 +11,28 @@ Before you begin, ensure you have the following installed on your system:
     ```bash
     npm install -g pnpm
     ```
--   **Python**: Version 3.10 or higher. You can download it from [python.org](https://www.python.org/). Make sure to add Python to your system's PATH during installation.
+-   **Python**: Version 3.10–3.11(recommended: **3.11**). You can download it from [python.org](https://www.python.org/). Make sure to **add Python to PATH** during installation.
+
+## API Keys
+
+This project uses **OpenAI** for **LLM** and **TTS**, and **Deepgram** for **STT**.  
+You must create API keys for both providers:
+
+-   **OpenAI API Key**: Create one in the OpenAI dashboard (https://platform.openai.com/api-keys)
+-   **Deepgram API Key**: Create one in the Deepgram Console (https://console.deepgram.com/)
+
+Create a `.env` file in the project root and add:
+
+```bash
+OPENAI_API_KEY=sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxx
+DEEPGRAM_API_KEY=xxxxxxxxxxx
+```
 
 ## Installation
 
 1.  **Clone the repository:**
     ```bash
-    https://github.com/croissants-services/VoiceAI_Final.git
+    https://github.com/<OWNER>/VoiceAI_Final.git
     cd VoiceAI_Final
     ```
 
