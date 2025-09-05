@@ -21,6 +21,10 @@ const DEFAULT_IN_ENCODING = (process.env.BFF_AUDIO_IN_ENCODING_DEFAULT || "pcm16
 const RECORD_DIR = process.env.BFF_RECORD_DIR || ".recordings";
 const ENABLE_RECORD = (process.env.BFF_RECORD_ENABLE || "1") !== "0";
 
+// ====== Downlink tunables ======
+const DOWN_MAX_BUFFERED = Number(process.env.BFF_DOWN_MAX_BUFFERED || 512 * 1024); // 512KB client ws buffer cap
+const PING_INTERVAL_MS  = Number(process.env.BFF_PING_INTERVAL_MS  || 20000);      // 20s keepalive ping
+
 // Derived
 const FRAME_BYTES = Math.max(1, Math.floor((TARGET_SR * FRAME_MS) / 1000) * 2 /*bytes per sample*/ * TARGET_CH);
 
@@ -171,6 +175,26 @@ export function attachGateway(server: any, upstreamUrl: string) {
   wss.on("connection", async (client: WebSocket, req) => {
     console.log("[BFF] client connected", req.socket.remoteAddress, req.socket.remotePort);
 
+    // Keepalive state and helpers
+    let pingTimer: NodeJS.Timeout | null = null;
+    let clientAlive = true;
+    const startKeepalive = () => {
+      stopKeepalive();
+      pingTimer = setInterval(() => {
+        if (!clientAlive) {
+          try { client.terminate(); } catch {}
+          stopKeepalive();
+          return;
+        }
+        clientAlive = false;
+        try { client.ping(); } catch {}
+      }, PING_INTERVAL_MS);
+    };
+    const stopKeepalive = () => { if (pingTimer) { clearInterval(pingTimer); pingTimer = null; } };
+    client.on("pong", () => { clientAlive = true; });
+
+    startKeepalive();
+
     // Per-session upstream
     const upstream = new ModelApiService(upstreamUrl);
     try {
@@ -178,6 +202,7 @@ export function attachGateway(server: any, upstreamUrl: string) {
     } catch (e) {
       console.error("[BFF] upstream connect error:", e);
       try { client.close(1011, "Upstream connect error"); } catch {}
+      stopKeepalive();
       return;
     }
 
@@ -191,6 +216,27 @@ export function attachGateway(server: any, upstreamUrl: string) {
     let accPcm = Buffer.alloc(0);
     const record = (buf: Buffer) => { if (ENABLE_RECORD) accPcm = Buffer.concat([accPcm, buf]); };
 
+    // Downlink coalescer
+    let downAcc = Buffer.alloc(0);
+    let downTimer: NodeJS.Timeout | null = null;
+    const flushDownlink = () => {
+      if (downAcc.length === 0) return;
+      if (client.readyState !== WebSocket.OPEN) { downAcc = Buffer.alloc(0); return; }
+      // If client buffer is too full, skip this cycle and try next tick (coalesce more)
+      if ((client as any).bufferedAmount && (client as any).bufferedAmount > DOWN_MAX_BUFFERED) {
+        return; // backpressure: hold off sending to avoid memory growth
+      }
+      try { client.send(downAcc, { binary: true }); } catch {}
+      downAcc = Buffer.alloc(0);
+    };
+    const scheduleFlush = () => {
+      if (downTimer) return;
+      downTimer = setTimeout(() => {
+        flushDownlink();
+        downTimer = null;
+      }, 10);
+    };
+
     function drainFrames(buf: Buffer) {
       frameAcc = Buffer.concat([frameAcc, buf]);
       while (frameAcc.length >= FRAME_BYTES) {
@@ -203,9 +249,17 @@ export function attachGateway(server: any, upstreamUrl: string) {
     }
 
     // upstream → client passthrough
-    upstream.onBinary = (buf) => { try { client.send(buf, { binary: true }); } catch {} };
+    upstream.onBinary = (buf) => {
+      downAcc = Buffer.concat([downAcc, buf]);
+      scheduleFlush();
+    };
     upstream.onJson   = (obj) => { try { client.send(JSON.stringify(obj)); } catch {} };
-    upstream.onClose  = () => { try { client.close(1011, "Upstream closed"); } catch {} };
+    upstream.onClose  = () => {
+      flushDownlink();
+      if (downTimer) { clearTimeout(downTimer); downTimer = null; }
+      stopKeepalive();
+      try { client.close(1011, "Upstream closed"); } catch {};
+    };
 
     // client → upstream
     client.on("message", (data, isBinary) => {
@@ -258,6 +312,7 @@ export function attachGateway(server: any, upstreamUrl: string) {
     });
 
     client.on("close", () => {
+      stopKeepalive();
       try {
         if (ENABLE_RECORD && accPcm.length > 0) {
           writeWavFile(wavPath, accPcm, TARGET_SR, TARGET_CH);
@@ -272,6 +327,9 @@ export function attachGateway(server: any, upstreamUrl: string) {
       upstream.close();
     });
 
-    client.on("error", (e) => console.error("[BFF] client error:", e));
+    client.on("error", (e) => {
+      stopKeepalive();
+      console.error("[BFF] client error:", e);
+    });
   });
 }
