@@ -52,7 +52,7 @@ You will need two terminals to run the project.
 First, run the command below to start the FastAPI server. This server handles all the AI processing.
 
 ```bash
-python -m uvicorn main:app --reload
+python -m uvicorn model.main:app --reload
 ```
 
 #### Terminal 2: Run the Client
